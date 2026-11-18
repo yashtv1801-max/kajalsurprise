@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Something for Kajal ✨</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            background: #050006;
+            color: #ffd6ec;
+            font-family: 'Courier New', ui-monospace, monospace;
+            overflow: hidden;
+        }
+
+        #rain {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+
+        /* soft dark centre so the text stays readable over the rain */
+        .veil {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, rgba(5,0,6,0.78) 0%, rgba(5,0,6,0.35) 55%, rgba(5,0,6,0) 100%);
+        }
+
+        .stage {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 24px;
+        }
+
+        .eyebrow {
+            font-size: clamp(0.95rem, 3.6vw, 1.3rem);
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: #ff8cc6;
+            margin-bottom: 1.4rem;
+            text-shadow: 0 0 12px rgba(255, 79, 163, 0.7);
+        }
+
+        .clock {
+            font-size: clamp(2.2rem, 11vw, 5.5rem);
+            font-weight: bold;
+            letter-spacing: 0.06em;
+            color: #ff7ab8;
+            text-shadow: 0 0 10px #ff4fa3, 0 0 30px rgba(255, 79, 163, 0.6);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .hint {
+            margin-top: 1.4rem;
+            font-size: clamp(0.85rem, 3.2vw, 1.05rem);
+            color: #d9a3c2;
+            opacity: 0.85;
+        }
+
+        /* final 10 seconds: one huge number */
+        .big {
+            font-size: clamp(8rem, 42vw, 22rem);
+            line-height: 1;
+            font-weight: bold;
+            color: #ff7ab8;
+            text-shadow: 0 0 20px #ff4fa3, 0 0 60px rgba(255, 79, 163, 0.8);
+        }
+        .big.pop { animation: pop 0.9s ease-out; }
+
+        @keyframes pop {
+            0%   { transform: scale(1.35); opacity: 0; }
+            25%  { opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        /* passcode */
+        .lock { width: min(320px, 86vw); }
+        .lock .label {
+            font-size: clamp(1rem, 4vw, 1.2rem);
+            color: #ffb3d9;
+            margin-bottom: 1.2rem;
+            letter-spacing: 0.08em;
+        }
+        #code {
+            width: 100%;
+            text-align: center;
+            font-family: inherit;
+            font-size: 2.2rem;
+            letter-spacing: 0.7em;
+            padding: 0.6rem 0 0.6rem 0.7em;
+            color: #ffe3f2;
+            background: rgba(255, 79, 163, 0.08);
+            border: 2px solid #ff4fa3;
+            border-radius: 14px;
+            outline: none;
+            box-shadow: 0 0 18px rgba(255, 79, 163, 0.45);
+        }
+        #code:focus { box-shadow: 0 0 28px rgba(255, 79, 163, 0.8); }
+        .err {
+            min-height: 1.6em;
+            margin-top: 0.9rem;
+            font-size: 0.95rem;
+            color: #ff9ac8;
+        }
+        .shake { animation: shake 0.4s; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-10px); }
+            40%, 80% { transform: translateX(10px); }
+        }
+
+        /* once the passcode box is up, the words sit in the rain above it */
+        body.locked .veil {
+            background: linear-gradient(to top, rgba(5,0,6,0.94) 0%, rgba(5,0,6,0.8) 30%, rgba(5,0,6,0) 58%);
+        }
+        body.locked .stage {
+            justify-content: flex-end;
+            padding-bottom: 9vh;
+        }
+
+        .hidden { display: none; }
+
+        body.leaving { transition: opacity 1s ease; opacity: 0; }
+    </style>
+</head>
+<body>
+    <canvas id="rain"></canvas>
+    <div class="veil"></div>
+
+    <main class="stage">
+        <p class="eyebrow" id="eyebrow">A surprise for Kajal</p>
+
+        <div class="clock" id="clock">--:--:--</div>
+        <div class="big hidden" id="big"></div>
+        <p class="hint" id="hint">It opens at midnight ✨</p>
+
+        <form class="lock hidden" id="lock" autocomplete="off">
+            <p class="label">Enter the passcode</p>
+            <input id="code" type="password" inputmode="numeric" pattern="[0-9]*"
+                   maxlength="4" autocomplete="off" aria-label="Passcode">
+            <p class="err" id="err"></p>
+        </form>
+    </main>
+
+    <script>
+        // ---------- Settings (change these if needed) ----------
+        const PASSCODE  = '0755';
+        // Unlock time in IST (+05:30). Midnight at the start of 19 Nov 2026.
+        const UNLOCK_AT = new Date('2026-11-19T00:00:00+05:30').getTime();
+        const NEXT_PAGE = 'home.html';
+        // Open index.html?preview to test: it unlocks about 12 seconds after loading.
+        const PREVIEW   = location.search.includes('preview');
+        // true  = wait for midnight (UNLOCK_AT), then show the passcode.
+        // false = skip the countdown and show the passcode straight away.
+        const COUNTDOWN = true;
+        // --------------------------------------------------------
+
+        const useCountdown = COUNTDOWN || PREVIEW;
+        const target = PREVIEW ? Date.now() + 12000 : UNLOCK_AT;
+
+        /* ===== Pink digital rain ===== */
+        const canvas = document.getElementById('rain');
+        const ctx = canvas.getContext('2d');
+        // Only English letters: every falling stream spells the greeting top to bottom.
+        const PHRASE = 'HAPPY BIRTHDAY KAJAL ';
+        const glyphs = 'HAPPYBIRTHDAYKAJAL';
+        let fontSize, columns, drops, offs;
+
+        function setupRain() {
+            canvas.width  = window.innerWidth;
+            canvas.height = window.innerHeight;
+            fontSize = window.innerWidth < 600 ? 15 : 18;
+            columns = Math.floor(canvas.width / fontSize);
+            drops = Array.from({ length: columns }, () => Math.random() * -50);
+            offs  = Array.from({ length: columns }, () => Math.floor(Math.random() * PHRASE.length));
+        }
+        setupRain();
+        window.addEventListener('resize', () => {
+            setupRain();
+            if (textOn) startBirthdayText(true);   // rebuild the words, already formed
+        });
+
+        function drawRain() {
+            ctx.fillStyle = 'rgba(5, 0, 6, 0.09)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = fontSize + 'px monospace';
+
+            for (let i = 0; i < columns; i++) {
+                const n = PHRASE.length;
+                const ch = PHRASE.charAt((((Math.floor(drops[i]) + offs[i]) % n) + n) % n);
+                const x = i * fontSize;
+                const y = drops[i] * fontSize;
+
+                // bright head, softer pink trail
+                ctx.fillStyle = Math.random() > 0.96 ? '#fff0f8' : '#ff4fa3';
+                ctx.fillText(ch, x, y);
+
+                if (y > canvas.height && Math.random() > 0.975) drops[i] = 0;
+                drops[i] += 1;
+            }
+        }
+
+        /* ===== HAPPY BIRTHDAY KAJAL, forming inside the rain ===== */
+        const TEXT_LINES = ['HAPPY', 'BIRTHDAY', 'KAJAL'];
+        let textOn = false;
+        let textCells = [];            // {r, c, ch} grid cells that make up the letters
+        let textCols = 0, textRows = 0, tsz = 8;
+        let colHead = [], colDelay = [], textStart = 0;
+
+        const randGlyph = () => glyphs.charAt(Math.floor(Math.random() * glyphs.length));
+
+        function buildTextMask() {
+            const W = canvas.width, H = canvas.height;
+            tsz = W < 600 ? 6 : 9;
+            textCols = Math.floor(W / tsz);
+            textRows = Math.floor(H / tsz);
+
+            // draw the words once on a hidden canvas, then see which grid cells they cover
+            const off = document.createElement('canvas');
+            off.width = W; off.height = H;
+            const o = off.getContext('2d');
+            const family = '"Arial Black", Impact, Arial, sans-serif';
+
+            let fs = 100;
+            o.font = 'bold ' + fs + 'px ' + family;
+            fs = fs * Math.min(W * 0.9, 900) / o.measureText('BIRTHDAY').width;
+            let lh = fs * 1.2;
+            if (lh * TEXT_LINES.length > H * 0.42) {
+                fs = fs * (H * 0.42) / (lh * TEXT_LINES.length);
+                lh = fs * 1.2;
+            }
+            o.font = 'bold ' + fs + 'px ' + family;
+            o.textAlign = 'center';
+            o.textBaseline = 'middle';
+            o.fillStyle = '#fff';
+            const top = H * 0.27 - (lh * TEXT_LINES.length) / 2;
+            o.strokeStyle = '#fff';
+            o.lineWidth = fs * 0.07;               // thicken the letters so they read in the rain
+            o.lineJoin = 'round';
+            TEXT_LINES.forEach((t, i) => {
+                o.strokeText(t, W / 2, top + lh * (i + 0.5));
+                o.fillText(t, W / 2, top + lh * (i + 0.5));
+            });
+
+            const data = o.getImageData(0, 0, W, H).data;
+            const hit = (x, y) => data[(y * W + x) * 4 + 3] > 110;
+            const q = tsz / 4;
+            textCells = [];
+            for (let r = 0; r < textRows; r++) {
+                for (let c = 0; c < textCols; c++) {
+                    let n = 0;
+                    for (const [dx, dy] of [[1, 1], [3, 1], [1, 3], [3, 3], [2, 2]]) {
+                        if (hit(Math.floor(c * tsz + dx * q), Math.floor(r * tsz + dy * q))) n++;
+                    }
+                    if (n >= 2) textCells.push({ r, c, ch: randGlyph() });
+                }
+            }
+        }
+
+        function startBirthdayText(instant) {
+            buildTextMask();
+            textOn = true;
+            textStart = performance.now();
+            colDelay = Array.from({ length: textCols }, () => Math.random() * 2200);
+            colHead  = new Array(textCols).fill(instant ? 1e9 : -1);
+        }
+
+        function drawBirthdayText() {
+            if (!textOn) return;
+            const now = performance.now() - textStart;
+            if (now > 6500) colHead.fill(1e9);          // everything has landed
+            else for (let c = 0; c < textCols; c++) {
+                const t = now - colDelay[c];
+                colHead[c] = t < 0 ? -1 : (t / 55) * 1.6;   // rows the "drop" has reached
+            }
+
+            ctx.save();
+            ctx.textBaseline = 'top';
+            ctx.font = 'bold ' + tsz + 'px monospace';
+            for (const cell of textCells) {
+                const head = colHead[cell.c];
+                if (head < cell.r) continue;            // the drop has not got here yet
+                const x = cell.c * tsz, y = cell.r * tsz;
+                const fresh = head - cell.r < 3;        // the falling tip is bright white
+                ctx.fillStyle = fresh ? '#ff4fa3' : '#a3205f';   // solid block, hides the rain behind it
+                ctx.fillRect(x, y, tsz, tsz);
+                ctx.fillStyle = fresh ? '#ffffff' : '#ffe6f3';
+                if (Math.random() < 0.015) cell.ch = randGlyph();
+                ctx.fillText(cell.ch, x, y);
+            }
+            ctx.restore();
+        }
+
+        setInterval(() => { drawRain(); drawBirthdayText(); }, 55);
+
+        /* ===== Countdown ===== */
+        const clockEl   = document.getElementById('clock');
+        const bigEl     = document.getElementById('big');
+        const hintEl    = document.getElementById('hint');
+        const eyebrowEl = document.getElementById('eyebrow');
+        const lockEl    = document.getElementById('lock');
+        const codeEl    = document.getElementById('code');
+        const errEl     = document.getElementById('err');
+
+        let lastBig = null;
+        let unlocked = false;
+
+        const pad = n => String(n).padStart(2, '0');
+
+        function tick() {
+            if (unlocked) return;
+            const diff = target - Date.now();
+
+            if (diff <= 0) {
+                unlocked = true;
+                clearInterval(timer);
+                showLock();
+                return;
+            }
+
+            const secs = Math.ceil(diff / 1000);
+
+            if (secs <= 10) {
+                clockEl.classList.add('hidden');
+                hintEl.classList.add('hidden');
+                bigEl.classList.remove('hidden');
+                if (lastBig !== secs) {
+                    lastBig = secs;
+                    bigEl.textContent = secs;
+                    bigEl.classList.remove('pop');
+                    void bigEl.offsetWidth; // restart the animation
+                    bigEl.classList.add('pop');
+                }
+                return;
+            }
+
+            const d = Math.floor(secs / 86400);
+            const h = Math.floor((secs % 86400) / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            clockEl.textContent = (d > 0 ? d + 'd ' : '') + pad(h) + ':' + pad(m) + ':' + pad(s);
+        }
+
+        function showLock() {
+            bigEl.classList.add('hidden');
+            clockEl.classList.add('hidden');
+            hintEl.classList.add('hidden');
+            eyebrowEl.textContent = 'For Kajal ✨';
+            document.body.classList.add('locked');
+            lockEl.classList.remove('hidden');
+            startBirthdayText(false);
+            codeEl.focus();
+        }
+
+        let timer = null;
+        if (useCountdown) {
+            timer = setInterval(tick, 200);
+            tick();
+        } else {
+            unlocked = true;      // no countdown for now: straight to the passcode
+            showLock();
+        }
+
+        /* ===== Passcode ===== */
+        function checkCode() {
+            const value = codeEl.value;
+            if (value.length < 4) return;
+
+            if (value === PASSCODE) {
+                try { sessionStorage.setItem('kajal_unlocked', '1'); } catch (e) {}
+                errEl.textContent = '';
+                document.body.classList.add('leaving');
+                setTimeout(() => { window.location.href = NEXT_PAGE; }, 1000);
+            } else {
+                errEl.textContent = 'Not quite, try again';
+                codeEl.classList.remove('shake');
+                void codeEl.offsetWidth;
+                codeEl.classList.add('shake');
+                codeEl.value = '';
+            }
+        }
+
+        codeEl.addEventListener('input', () => {
+            codeEl.value = codeEl.value.replace(/\D/g, '');
+            errEl.textContent = '';
+            checkCode();
+        });
+        lockEl.addEventListener('submit', e => { e.preventDefault(); checkCode(); });
+    </script>
+</body>
+</html>
